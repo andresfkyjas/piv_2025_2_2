@@ -1,5 +1,7 @@
+# reporte.py
 import streamlit as st
 import pandas as pd
+from logger_config import get_logger
 
 class Reporte:
     def __init__(self, df: pd.DataFrame):
@@ -11,6 +13,13 @@ class Reporte:
          'renda_percapita', 'estacao_prox', 'linha_prox', 'dist', 'lat', 'lon']
         """
         self.df = df
+        self.logger = get_logger(self.__class__.__name__)
+        # Logeamos información básica del DF de visualización
+        self.logger.info(
+            "Reporte inicializado con DataFrame de shape: %s y columnas: %s",
+            self.df.shape,
+            list(self.df.columns),
+        )
 
     # ------------------------
     # Cálculo de indicadores
@@ -19,17 +28,28 @@ class Reporte:
         df = self.df
 
         kpis = {
-            "Valor total medio (R$)": df["valor_total"].mean(),
-            "Precio medio por m² (R$/m²)": df["unit"].mean(),
-            "Área útil media (m²)": df["area_util"].mean(),
-            "Cuartos medios": df["quartos"].mean(),
-            "Renta per cápita media (R$)": df["renda_percapita"].mean(),
+            "valor_total_medio": df["valor_total"].mean(),
+            "precio_m2_medio": df["unit"].mean(),
+            "area_util_media": df["area_util"].mean(),
+            "cuartos_medios": df["quartos"].mean(),
+            "renta_percapita_media": df["renda_percapita"].mean(),
         }
-        return kpis
 
-    # ------------------------
-    # Sección de KPIs
-    # ------------------------
+        # Log de las variables de visualización (KPIs)
+        self.logger.info("KPIs calculados para visualización: %s", kpis)
+
+        # Devolvemos en formato legible para la UI
+        labels = {
+            "valor_total_medio": "Valor total medio (R$)",
+            "precio_m2_medio": "Precio medio por m² (R$/m²)",
+            "area_util_media": "Área útil media (m²)",
+            "cuartos_medios": "Cuartos medios",
+            "renta_percapita_media": "Renta per cápita media (R$)",
+        }
+
+        kpis_mostrados = {labels[k]: v for k, v in kpis.items()}
+        return kpis_mostrados
+
     def render_kpis(self):
         st.subheader("Indicadores principales")
 
@@ -42,11 +62,14 @@ class Reporte:
         for col, (label, value) in zip(cols, kpis.items()):
             col.metric(label, f"{value:,.2f}")
 
-        # Gráfico de barras con los indicadores
-        st.markdown("### Comparación de indicadores")
+        # Log de datos usados en el gráfico de barras
+        self.logger.info("Mostrando KPIs en dashboard: %s", kpis)
+
         kpi_df = pd.DataFrame(
             {"Indicador": list(kpis.keys()), "Valor": list(kpis.values())}
         )
+
+        st.markdown("### Comparación de indicadores")
         st.bar_chart(kpi_df.set_index("Indicador"))
 
     # ------------------------
@@ -59,40 +82,66 @@ class Reporte:
 
         # Scatter valor_total vs área_util
         if {"area_util", "valor_total"}.issubset(df.columns):
+            self.logger.info(
+                "Renderizando scatter valor_total vs area_util con %d filas",
+                len(df),
+            )
             st.markdown("**Valor total vs área útil**")
             st.scatter_chart(df, x="area_util", y="valor_total")
+        else:
+            self.logger.warning(
+                "No se puede crear scatter: faltan columnas 'area_util' o 'valor_total'"
+            )
 
         # Mapa de propiedades si hay lat/lon
         if {"lat", "lon"}.issubset(df.columns):
+            df_mapa = df[["lat", "lon"]].dropna()
+            self.logger.info(
+                "Renderizando mapa de propiedades con %d puntos", len(df_mapa)
+            )
             st.markdown("**Mapa de propiedades**")
-            st.map(df[["lat", "lon"]].dropna())
+            st.map(df_mapa)
+        else:
+            self.logger.warning(
+                "No se puede crear mapa: faltan columnas 'lat' o 'lon'"
+            )
 
     # ------------------------
-    # Filtros (opcional)
+    # Filtros
     # ------------------------
     def render_filters(self):
         df = self.df
 
         st.sidebar.header("Filtros")
 
-        # Ejemplo: filtrar por estación y línea de metro
-        estacoes = ["(Todas)"] + sorted(df["estacao_prox"].dropna().unique().tolist())
-        linhas = ["(Todas)"] + sorted(df["linha_prox"].dropna().unique().tolist())
+        estacoes = ["(Todas)"]
+        linhas = ["(Todas)"]
+
+        if "estacao_prox" in df.columns:
+            estacoes += sorted(df["estacao_prox"].dropna().unique().tolist())
+        if "linha_prox" in df.columns:
+            linhas += sorted(df["linha_prox"].dropna().unique().tolist())
 
         estacao_sel = st.sidebar.selectbox("Estación más próxima", estacoes)
         linha_sel = st.sidebar.selectbox("Línea más próxima", linhas)
 
         df_filtrado = df.copy()
 
-        if estacao_sel != "(Todas)":
+        if estacao_sel != "(Todas)" and "estacao_prox" in df.columns:
             df_filtrado = df_filtrado[df_filtrado["estacao_prox"] == estacao_sel]
 
-        if linha_sel != "(Todas)":
+        if linha_sel != "(Todas)" and "linha_prox" in df.columns:
             df_filtrado = df_filtrado[df_filtrado["linha_prox"] == linha_sel]
 
-        # Actualizamos el df que usa el dashboard
-        self.df = df_filtrado
+        # Log de variables de visualización relacionadas con filtros
+        self.logger.info(
+            "Filtros aplicados - estacao_prox: %s, linha_prox: %s, filas resultantes: %d",
+            estacao_sel,
+            linha_sel,
+            len(df_filtrado),
+        )
 
+        self.df = df_filtrado
         st.sidebar.write(f"Total de registros: {len(self.df)}")
 
     # ------------------------
@@ -101,33 +150,14 @@ class Reporte:
     def render(self):
         st.title("Dashboard Inmobiliario")
 
+        # Log de inicio de render
+        self.logger.info("Renderizando dashboard principal")
+
         # Filtros (modifican self.df)
-        if {"estacao_prox", "linha_prox"}.issubset(self.df.columns):
-            self.render_filters()
+        self.render_filters()
 
         # Secciones principales
         self.render_kpis()
         self.render_exploratory_charts()
 
-
-# ------------------------
-# Uso en app.py
-# ------------------------
-# Guarda este archivo como app.py, por ejemplo,
-# y ejecuta: streamlit run app.py
-
-#if __name__ == "__main__":
-    # Aquí cargas tu df:
-    # df = pd.read_csv("tus_datos.csv")
-    # Para el ejemplo, simplemente creamos uno vacío:
-    # df = pd.read_csv("datos_inmuebles.csv")
-
-    # Ejemplo: si ya tienes df en otro archivo, solo lo importas
-    # from datos import df
-
-    #df = pd.read_csv("tus_datos.csv")  # ajusta ruta
-
-    #st.set_page_config(page_title="Dashboard Inmobiliario", layout="wide")
-
-    #dashboard = ImoveisDashboard(df)
-    #dashboard.render()
+        self.logger.info("Render de dashboard completado")

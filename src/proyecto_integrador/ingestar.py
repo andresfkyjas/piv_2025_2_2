@@ -7,7 +7,7 @@ from typing import List, Any
 import numpy as np
 import pandas as pd
 import kagglehub
-
+from logger_config import get_logger 
 
 class Ingestar:
     """
@@ -28,6 +28,7 @@ class Ingestar:
     def __init__(self):
         # Permite que ciertas funciones usen información contextual como nombres de columnas
         self.column_names: List[str] = []
+        self.logger = get_logger(self.__class__.__name__) 
 
     # ============================
     # 1. Utilidades de validación
@@ -163,9 +164,9 @@ class Ingestar:
         if kaggle_ref == "":
             raise ValueError("Debes pasar el nombre del dataset de Kaggle, ej. 'usuario/dataset'.")
 
-        print("Descargando dataset desde Kaggle...")
+        self.logger.info("Descargando dataset desde Kaggle: %s", kaggle_ref)
         dataset_path = kagglehub.dataset_download(kaggle_ref)
-        print("Ruta al dataset:", dataset_path)
+        self.logger.info("Ruta al dataset descargado: %s", dataset_path)
         return dataset_path
 
     # =========================================================
@@ -187,7 +188,7 @@ class Ingestar:
             raise FileNotFoundError(f"La ruta {dataset_path} no existe.")
 
         archivos = os.listdir(dataset_path)
-        print("Archivos encontrados en la descarga:", archivos)
+        self.logger.info("Archivos encontrados en la descarga: %s", archivos)
 
         # 1. Buscar .zip
         zip_files = [f for f in archivos if f.endswith(".zip")]
@@ -203,13 +204,13 @@ class Ingestar:
         # 2. Buscar .csv
         csv_files = [f for f in archivos if f.endswith(".csv")]
         if csv_files:
-            print("Se detectaron archivos CSV directamente en la carpeta descargada.")
+            self.logger.info("Se detectaron archivos CSV directamente en la carpeta descargada.")
             return dataset_path
 
         # 3. Buscar .xlsx
         xlsx_files = [f for f in archivos if f.endswith(".xlsx")]
         if xlsx_files:
-            print("Se detectaron archivos XLSX directamente en la carpeta descargada.")
+            self.logger.info("Se detectaron archivos XLSX directamente en la carpeta descargada.")
             return dataset_path
 
         # 4. Nada utilizable
@@ -237,9 +238,9 @@ class Ingestar:
         """
         if not os.path.exists(data_dir):
             raise FileNotFoundError(f"La ruta {data_dir} no existe.")
-
+        
         archivos = os.listdir(data_dir)
-
+        self.logger.info("Buscando datasets en la carpeta: %s; archivos: %s", data_dir, archivos)
         csv_files = [f for f in archivos if f.endswith('.csv')]
         xlsx_files = [f for f in archivos if f.endswith('.xlsx')]
 
@@ -248,22 +249,24 @@ class Ingestar:
         # Cargar CSVs
         for file in csv_files:
             file_path = os.path.join(data_dir, file)
-            print(f"Leyendo CSV {file_path} ...")
+            self.logger.info("Leyendo CSV: %s", file_path)
             try:
                 df_temp = pd.read_csv(file_path, encoding="latin1")
+                self.logger.info("CSV leído con shape: %s", df_temp.shape)
             except Exception as e:
-                print(f"Error al leer {file_path}: {e}")
+                self.logger.exception("Error al leer CSV %s: %s", file_path, e)
                 continue
             dfs.append(df_temp)
 
         # Cargar Excels
         for file in xlsx_files:
             file_path = os.path.join(data_dir, file)
-            print(f"Leyendo Excel {file_path} ...")
+            self.logger.info("Leyendo Excel: %s", file_path)
             try:
                 df_temp = pd.read_excel(file_path)
+                self.logger.info("Excel leído con shape: %s", df_temp.shape)
             except Exception as e:
-                print(f"Error al leer {file_path}: {e}")
+                self.logger.exception("Error al leer Excel %s: %s", file_path, e)
                 continue
             dfs.append(df_temp)
 
@@ -273,7 +276,7 @@ class Ingestar:
             )
 
         df_final = pd.concat(dfs, ignore_index=True)
-        print("✅ Dataset cargado correctamente en DataFrame.")
+        self.logger.info("Dataset final concatenado con shape: %s", df_final.shape)
         return df_final
 
     # =========================================================
@@ -305,19 +308,29 @@ class Ingestar:
         Imprime el conteo de nulos antes y después para dejar trazabilidad.
         """
         if name_col not in df_datos.columns:
+            self.logger.error("La columna %s no existe en el DataFrame", name_col)
             raise ValueError(f"La columna '{name_col}' no existe en el DataFrame.")
 
         nulos_antes = df_datos[name_col].isnull().sum()
         if nulos_antes > 0:
             df = df_datos.copy()
+            self.logger.info(
+                "Reemplazando %d nulos en la columna %s por %s",
+                nulos_antes,
+                name_col,
+                reemplezar,
+            )
             df[name_col] = df[name_col].fillna(reemplezar)
             nulos_despues = df[name_col].isnull().sum()
-            print(
-                "cantidad antes {}/{}  despues {}/{}".format(
-                    nulos_antes, len(df_datos), nulos_despues, len(df)
-                )
+            self.logger.info(
+                "Nulos antes: %d, nulos después: %d, total filas: %d",
+                nulos_antes,
+                nulos_despues,
+                len(df),
             )
             return df
 
-        print("no hay nulos en la columna indicada")
+        self.logger.info(
+            "No hay nulos en la columna indicada: %s", name_col
+        )
         return df_datos
